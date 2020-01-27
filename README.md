@@ -6,6 +6,22 @@ kernel.
 
 Usage
 =====
+```
+# ./amd_ucode_info.py --help
+usage: amd_ucode_info.py [-h] [-e EXTRACT] container_file
+
+Print information about an amd-ucode container
+
+positional arguments:
+  container_file
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -e EXTRACT, --extract EXTRACT
+                        Dump each patch in container to the specified
+                        directory
+```
+
 To print information about a container file, pass the path to the container
 file as a positional parameter to the amd\_ucode\_info.py script as shown below.
 ```
