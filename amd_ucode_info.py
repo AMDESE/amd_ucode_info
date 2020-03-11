@@ -118,6 +118,8 @@ def parse_ucode_file(opts):
             if not equiv_id in ids:
                 print("Patch equivalence id not present in equivalence table (%#06x)"
                       % (equiv_id))
+
+                cursor = cursor + patch_length + 8
                 continue
 
             cpu_id = ids[equiv_id]
