@@ -7,15 +7,15 @@ kernel.
 Usage
 =====
 ```
-# ./amd_ucode_info.py --help
-usage: amd_ucode_info.py [-h] [-e EXTRACT] container_file
+$ ./amd_ucode_info.py --help
+usage: amd_ucode_info.py [-h] [-e EXTRACT] container_file [container_file ...]
 
 Print information about an amd-ucode container
 
 positional arguments:
   container_file
 
-optional arguments:
+options:
   -h, --help            show this help message and exit
   -e EXTRACT, --extract EXTRACT
                         Dump each patch in container to the specified

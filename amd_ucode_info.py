@@ -73,13 +73,13 @@ def extract_patch(opts, patch_start, patch_length, ucode_file, ucode_level):
 
     os.chdir(cwd)
 
-def parse_ucode_file(opts):
+def parse_ucode_file(opts, path):
     """
     Scan through microcode container file printing the microcode patch level
     for each model contained in the file.
     """
-    with open(opts.container_file, "rb") as ucode_file:
-        print("Microcode patches in %s:" % (opts.container_file))
+    with open(path, "rb") as ucode_file:
+        print("Microcode patches in %s:" % path)
 
         # Seek to end of file to determine file size
         ucode_file.seek(0, 2)
@@ -89,7 +89,7 @@ def parse_ucode_file(opts):
         ucode_file.seek(0, 0)
         if ucode_file.read(4) != b'DMA\x00':
             print("ERROR: Missing magic number at beginning of container")
-            sys.exit()
+            return
 
         # Read the equivalence table length
         ucode_file.seek(EQ_TABLE_LEN_OFFSET, 0)
@@ -115,7 +115,7 @@ def parse_ucode_file(opts):
             ucode_file.seek(16, 1)
             equiv_id = read_int16(ucode_file)
 
-            if not equiv_id in ids:
+            if equiv_id not in ids:
                 print("Patch equivalence id not present in equivalence table (%#06x)"
                       % (equiv_id))
 
@@ -142,19 +142,24 @@ def parse_ucode_file(opts):
 
             cursor = cursor + patch_length + 8
 
+def parse_ucode_files(opts):
+    for f in opts.container_file:
+        parse_ucode_file(opts, f)
+
 def parse_options():
     """ Parse options """
     parser = argparse.ArgumentParser(description="Print information about an amd-ucode container")
-    parser.add_argument("container_file")
+    parser.add_argument("container_file", nargs='+')
     parser.add_argument("-e", "--extract",
                         help="Dump each patch in container to the specified directory")
     opts = parser.parse_args()
 
-    if not os.path.isfile(opts.container_file):
-        parser.print_help()
-        print()
-        print("ERROR: Container file \"%s\" does not exist" % opts.container_file)
-        sys.exit()
+    for f in opts.container_file:
+        if not os.path.isfile(f):
+            parser.print_help()
+            print()
+            print("ERROR: Container file \"%s\" does not exist" % f)
+            sys.exit()
 
     return opts
 
@@ -162,7 +167,7 @@ def main():
     """ main """
     opts = parse_options()
 
-    parse_ucode_file(opts)
+    parse_ucode_files(opts)
 
 if __name__ == "__main__":
     main()
