@@ -8,7 +8,8 @@ Usage
 =====
 ```
 $ ./amd_ucode_info.py --help
-usage: amd_ucode_info.py [-h] [-e EXTRACT] container_file [container_file ...]
+usage: amd_ucode_info.py [-h] [-e EXTRACT] [-v]
+                         container_file [container_file ...]
 
 Print information about an amd-ucode container
 
@@ -20,6 +21,9 @@ options:
   -e EXTRACT, --extract EXTRACT
                         Dump each patch in container to the specified
                         directory
+  -v, --verbose         Increase output verbosity level: provide once to see
+                        additional information about patches, twice to see all
+                        the information available
 ```
 
 To print information about a container file, pass the path to the container
