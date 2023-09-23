@@ -31,14 +31,14 @@ def read_int8(ucode_file):
     """ Read one byte of binary data and return as a 8 bit int """
     return int.from_bytes(ucode_file.read(1), 'little')
 
-def parse_equiv_table(opts, ucode_file, eq_table_len):
+def parse_equiv_table(opts, ucode_file, start_offset, eq_table_len):
     """
     Read equivalence table and return a list of the equivalence ids contained
     """
     table = {}
 
-    table_item = EQ_TABLE_OFFSET
-    table_stop = EQ_TABLE_OFFSET + eq_table_len
+    table_item = start_offset + EQ_TABLE_OFFSET
+    table_stop = start_offset + EQ_TABLE_OFFSET + eq_table_len
 
     while table_item < table_stop:
         ucode_file.seek(table_item, 0)
@@ -94,41 +94,46 @@ def extract_patch(opts, patch_start, patch_length, ucode_file, ucode_level):
 
     os.chdir(cwd)
 
-def parse_ucode_file(opts, path):
+def parse_ucode_file(opts, path, start_offset):
     """
     Scan through microcode container file printing the microcode patch level
     for each model contained in the file.
     """
     with open(path, "rb") as ucode_file:
-        print("Microcode patches in %s:" % path)
+        print("Microcode patches in %s%s:" %
+              (path, "+%#x" % start_offset if start_offset else ""))
 
         # Seek to end of file to determine file size
         ucode_file.seek(0, 2)
         end_of_file = ucode_file.tell()
 
         # Check magic number
-        ucode_file.seek(0, 0)
+        ucode_file.seek(start_offset, 0)
         if ucode_file.read(4) != b'DMA\x00':
             print("ERROR: Missing magic number at beginning of container")
             return
 
         # Read the equivalence table length
-        ucode_file.seek(EQ_TABLE_LEN_OFFSET, 0)
+        ucode_file.seek(start_offset + EQ_TABLE_LEN_OFFSET, 0)
         eq_table_len = read_int32(ucode_file)
 
-        ids = parse_equiv_table(opts, ucode_file, eq_table_len)
+        ids = parse_equiv_table(opts, ucode_file, start_offset, eq_table_len)
 
-        cursor = EQ_TABLE_OFFSET + eq_table_len
+        cursor = start_offset + EQ_TABLE_OFFSET + eq_table_len
         while cursor < end_of_file:
             # Seek to the start of the patch information
             ucode_file.seek(cursor, 0)
 
             patch_start = cursor + 8
 
-            patch_type = read_int32(ucode_file)
+            patch_type_bytes = ucode_file.read(4)
+            # Beginning of a new container
+            if patch_type_bytes == b'DMA\x00':
+                return cursor
+            patch_type = int.from_bytes(patch_type_bytes, 'little')
             if patch_type != 1:
                 print("Invalid patch identifier: %#010x" % (patch_type))
-                break
+                return
 
             patch_length = read_int32(ucode_file)
 
@@ -215,7 +220,9 @@ def parse_ucode_file(opts, path):
 
 def parse_ucode_files(opts):
     for f in opts.container_file:
-        parse_ucode_file(opts, f)
+        offset = 0
+        while offset is not None:
+            offset = parse_ucode_file(opts, f, offset)
 
 def parse_options():
     """ Parse options """
