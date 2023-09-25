@@ -78,7 +78,10 @@ def parse_equiv_table(opts, ucode_file, start_offset, eq_table_len):
         res = read_int16(ucode_file)
 
         if equiv_id != 0:
-            table[equiv_id] = cpu_id
+            if equiv_id not in table:
+                table[equiv_id] = []
+
+            table[equiv_id].append(cpu_id)
 
         if opts.verbose >= VERBOSE_DEBUG:
             print((" [equiv entry@%#010x: cpuid %#010x, equiv id %#06x, " +
@@ -203,12 +206,11 @@ def parse_ucode_file(opts, path, start_offset):
                 cursor = cursor + patch_length + 8
                 continue
 
-            cpu_id = ids[equiv_id]
-
             # The cpu_id is the equivalent to CPUID_Fn00000001_EAX
-            print("  %s: Patch=%#010x Length=%u bytes%s"
-                  % (fms2str(cpuid2fms(cpu_id)), ucode_level, patch_length,
-                     add_info))
+            for cpuid in ids[equiv_id]:
+                print("  %s: Patch=%#010x Length=%u bytes%s"
+                      % (fms2str(cpuid2fms(cpuid)), ucode_level, patch_length,
+                         add_info))
 
             if opts.verbose >= VERBOSE_DEBUG:
                 print(("   [data_code=%#010x, mc_patch_data_id=%#06x, " +
