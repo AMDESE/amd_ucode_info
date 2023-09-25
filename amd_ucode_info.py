@@ -18,6 +18,8 @@ from collections import OrderedDict
 EQ_TABLE_ENTRY_SIZE = 16
 EQ_TABLE_LEN_OFFSET = 8
 EQ_TABLE_OFFSET = 12
+EQ_TABLE_TYPE = 0
+PATCH_TYPE = 1
 
 VERBOSE_DEBUG = 2
 
@@ -115,9 +117,10 @@ def parse_equiv_table(opts, ucode_file, start_offset, eq_table_len):
 
     return table
 
-def extract_patch(opts, out_dir, ucode_file, patch):
+def extract_patch(opts, out_dir, ucode_file, patch, equiv_table=None):
     """
-    Extract raw microcode patch from ucode_file starting at patch.start
+    Extract patch (along with the respective headers and equivalence table
+    entries if equiv_table is provided) from ucode_file starting at patch.start
     to a file inside out_dir.  Directory will be created if it doesn't already
     exist.
 
@@ -129,6 +132,9 @@ def extract_patch(opts, out_dir, ucode_file, patch):
     @type ucode_file: io.BufferedIOBase
     @param patch: the patch to write out
     @type patch: PatchEntry
+    @param equiv_table: if provided, a valid container file is created that also
+                        includes entries relevant to the patch's equiv_id
+    @type equiv_table: dict
     """
     cwd = os.getcwd()
 
@@ -138,8 +144,38 @@ def extract_patch(opts, out_dir, ucode_file, patch):
     os.chdir(out_dir)
 
     ucode_file.seek(patch.offset, 0)
-    out_file_name = "mc_patch_0%x.bin" % patch.level
+    if equiv_table is None:
+        # Raw patch
+        out_file_name = "mc_patch_0%x.bin" % patch.level
+    else:
+        out_file_name = "mc_equivid_%#06x" % patch.equiv_id
+        for cpuid in equiv_table[patch.equiv_id]:
+            out_file_name += '_cpuid_%#010x' % cpuid
+        out_file_name += "_patch_%#010x.bin" % patch.level
+
     out_file = open(out_file_name, "wb")
+
+    if equiv_table is not None:
+        cpuids = equiv_table[patch.equiv_id] if patch.equiv_id in equiv_table else dict()
+
+        # Container header
+        out_file.write(b'DMA\x00')
+
+        # Equivalence table header
+        out_file.write(EQ_TABLE_TYPE.to_bytes(4, 'little'))
+        table_size = EQ_TABLE_ENTRY_SIZE * (len(cpuids) + 1)
+        out_file.write(table_size.to_bytes(4, 'little'))
+
+        # Equivalence table
+        for cpuid in cpuids.values():
+            out_file.write(cpuid.data)
+
+        out_file.write(b'\0' * EQ_TABLE_ENTRY_SIZE)
+
+        # Patch header
+        out_file.write(PATCH_TYPE.to_bytes(4, 'little'))
+        out_file.write(patch.size.to_bytes(4, 'little'))
+
     out_file.write(ucode_file.read(patch.size))
     out_file.close()
 
@@ -184,7 +220,7 @@ def parse_ucode_file(opts, path, start_offset):
             if patch_type_bytes == b'DMA\x00':
                 return cursor
             patch_type = int.from_bytes(patch_type_bytes, 'little')
-            if patch_type != 1:
+            if patch_type != PATCH_TYPE:
                 print("Invalid patch identifier: %#010x" % (patch_type))
                 return
 
@@ -262,6 +298,9 @@ def parse_ucode_file(opts, path, start_offset):
             if opts.extract:
                 extract_patch(opts, opts.extract, ucode_file, patch)
 
+            if opts.split:
+                extract_patch(opts, opts.split, ucode_file, patch, ids)
+
             cursor = cursor + patch_length + 8
 
 def parse_ucode_files(opts):
@@ -276,6 +315,8 @@ def parse_options():
     parser.add_argument("container_file", nargs='+')
     parser.add_argument("-e", "--extract",
                         help="Dump each patch in container to the specified directory")
+    parser.add_argument("-s", "--split",
+                        help="Split out each patch in a separate container to the specified directory")
     parser.add_argument("-v", "--verbose", action="count", default=0,
                         help="Increase output verbosity level: provide once " +
                              "to see additional information about patches, " +
