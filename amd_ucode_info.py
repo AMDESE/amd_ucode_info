@@ -23,6 +23,7 @@ VERBOSE_DEBUG = 2
 
 FMS = namedtuple("FMS", ("family", "model", "stepping"))
 EquivTableEntry = namedtuple("EquivTableEntry", ("cpuid", "data", "offset"))
+PatchEntry = namedtuple("PatchEntry", ("file", "offset", "size", "equiv_id", "level"))
 
 
 def read_int32(ucode_file):
@@ -114,23 +115,32 @@ def parse_equiv_table(opts, ucode_file, start_offset, eq_table_len):
 
     return table
 
-def extract_patch(opts, patch_start, patch_length, ucode_file, ucode_level):
+def extract_patch(opts, out_dir, ucode_file, patch):
     """
-    Extract raw microcode patch starting at patch_start to the directory
-    provided by the -o option or the current directory if not specified.
-    Directory will be created if it doesn't already exist.
+    Extract raw microcode patch from ucode_file starting at patch.start
+    to a file inside out_dir.  Directory will be created if it doesn't already
+    exist.
+
+    @param opts: options, as returned by ArgumentParser.parse_args()
+    @type opts: argparse.Namespace
+    @param out_dir: directory inside which the output file is stored
+    @type out_dir: str
+    @param ucode_file: file object to read the patch from
+    @type ucode_file: io.BufferedIOBase
+    @param patch: the patch to write out
+    @type patch: PatchEntry
     """
     cwd = os.getcwd()
 
-    if not os.path.exists(opts.extract):
-        os.makedirs(opts.extract)
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
 
-    os.chdir(opts.extract)
+    os.chdir(out_dir)
 
-    ucode_file.seek(patch_start, 0)
-    out_file_name = "mc_patch_0%x.bin" % (ucode_level)
+    ucode_file.seek(patch.offset, 0)
+    out_file_name = "mc_patch_0%x.bin" % patch.level
     out_file = open(out_file_name, "wb")
-    out_file.write(ucode_file.read(patch_length))
+    out_file.write(ucode_file.read(patch.size))
     out_file.close()
 
     print("    Patch extracted to %s/%s" % (os.getcwd(), out_file_name))
@@ -247,9 +257,10 @@ def parse_ucode_file(opts, path, start_offset):
                 print("   [match_reg=[%s]]" %
                       ", ".join(["%#010x" % x for x in match_reg]))
 
+            patch = PatchEntry(path, patch_start, patch_length, equiv_id, ucode_level)
+
             if opts.extract:
-                extract_patch(opts, patch_start, patch_length, ucode_file,
-                              ucode_level)
+                extract_patch(opts, opts.extract, ucode_file, patch)
 
             cursor = cursor + patch_length + 8
 
