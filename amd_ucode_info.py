@@ -13,6 +13,7 @@ import sys
 import os
 
 from collections import namedtuple
+from collections import OrderedDict
 
 EQ_TABLE_ENTRY_SIZE = 16
 EQ_TABLE_LEN_OFFSET = 8
@@ -21,6 +22,7 @@ EQ_TABLE_OFFSET = 12
 VERBOSE_DEBUG = 2
 
 FMS = namedtuple("FMS", ("family", "model", "stepping"))
+EquivTableEntry = namedtuple("EquivTableEntry", ("cpuid", "data", "offset"))
 
 
 def read_int32(ucode_file):
@@ -55,11 +57,15 @@ def parse_equiv_table(opts, ucode_file, start_offset, eq_table_len):
     Read equivalence table and return a list of the equivalence ids contained
     """
     table = {}
+    # For sanity check only
+    cpuid_map = {}
 
     table_item = start_offset + EQ_TABLE_OFFSET
     table_stop = start_offset + EQ_TABLE_OFFSET + eq_table_len
 
     while table_item < table_stop:
+        ucode_file.seek(table_item, 0)
+        data = ucode_file.read(EQ_TABLE_ENTRY_SIZE)
         ucode_file.seek(table_item, 0)
 
         """
@@ -79,9 +85,24 @@ def parse_equiv_table(opts, ucode_file, start_offset, eq_table_len):
 
         if equiv_id != 0:
             if equiv_id not in table:
-                table[equiv_id] = []
+                table[equiv_id] = OrderedDict()
 
-            table[equiv_id].append(cpu_id)
+            if cpu_id in table[equiv_id]:
+                print(("WARNING: Duplicate CPUID %#010x (%s) " +
+                       "in the equivalence table for equiv_id %#06x ") %
+                      (cpu_id, fms2str(cpuid2fms(cpu_id)), equiv_id))
+
+            if cpu_id in cpuid_map:
+                if equiv_id != cpuid_map[cpu_id]:
+                    print(("WARNING: Different equiv_id's (%#06x and %#06x) " +
+                           "are present in the equivalence table for CPUID " +
+                           "%#010x (%s)") %
+                          (equiv_id, cpuid_map[cpu_id], cpu_id,
+                           fms2str(cpuid2fms(cpu_id))))
+            else:
+                cpuid_map[cpu_id] = equiv_id
+
+            table[equiv_id][cpu_id] = EquivTableEntry(cpu_id, data, table_item)
 
         if opts.verbose >= VERBOSE_DEBUG:
             print((" [equiv entry@%#010x: cpuid %#010x, equiv id %#06x, " +
