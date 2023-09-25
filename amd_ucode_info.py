@@ -12,11 +12,15 @@ import argparse
 import sys
 import os
 
+from collections import namedtuple
+
 EQ_TABLE_ENTRY_SIZE = 16
 EQ_TABLE_LEN_OFFSET = 8
 EQ_TABLE_OFFSET = 12
 
 VERBOSE_DEBUG = 2
+
+FMS = namedtuple("FMS", ("family", "model", "stepping"))
 
 
 def read_int32(ucode_file):
@@ -30,6 +34,21 @@ def read_int16(ucode_file):
 def read_int8(ucode_file):
     """ Read one byte of binary data and return as a 8 bit int """
     return int.from_bytes(ucode_file.read(1), 'little')
+
+def cpuid2fms(cpu_id):
+    family = (cpu_id >> 8) & 0xf
+    family += (cpu_id >> 20) & 0xff
+
+    model = (cpu_id >> 4) & 0xf
+    model |= (cpu_id >> 12) & 0xf0
+
+    stepping = cpu_id & 0xf
+
+    return FMS(family, model, stepping)
+
+def fms2str(fms):
+    return "Family=%#04x Model=%#04x Stepping=%#04x" % \
+           (fms.family, fms.model, fms.stepping)
 
 def parse_equiv_table(opts, ucode_file, start_offset, eq_table_len):
     """
@@ -187,16 +206,9 @@ def parse_ucode_file(opts, path, start_offset):
             cpu_id = ids[equiv_id]
 
             # The cpu_id is the equivalent to CPUID_Fn00000001_EAX
-            family = (cpu_id >> 8) & 0xf
-            family += (cpu_id >> 20) & 0xff
-
-            model = (cpu_id >> 4) & 0xf
-            model |= (cpu_id >> 12) & 0xf0
-
-            stepping = cpu_id & 0xf
-
-            print("  Family=%#04x Model=%#04x Stepping=%#04x: Patch=%#010x Length=%u bytes%s"
-                  % (family, model, stepping, ucode_level, patch_length, add_info))
+            print("  %s: Patch=%#010x Length=%u bytes%s"
+                  % (fms2str(cpuid2fms(cpu_id)), ucode_level, patch_length,
+                     add_info))
 
             if opts.verbose >= VERBOSE_DEBUG:
                 print(("   [data_code=%#010x, mc_patch_data_id=%#06x, " +
