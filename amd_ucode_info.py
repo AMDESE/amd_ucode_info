@@ -202,15 +202,15 @@ def parse_ucode_file(opts, path, start_offset):
             if equiv_id not in ids:
                 print("Patch equivalence id not present in equivalence table (%#06x)"
                       % (equiv_id))
-
-                cursor = cursor + patch_length + 8
-                continue
-
-            # The cpu_id is the equivalent to CPUID_Fn00000001_EAX
-            for cpuid in ids[equiv_id]:
-                print("  %s: Patch=%#010x Length=%u bytes%s"
-                      % (fms2str(cpuid2fms(cpuid)), ucode_level, patch_length,
-                         add_info))
+                print(("  Family=???? Model=???? Stepping=????: " +
+                       "Patch=%#010x Length=%u bytes%s")
+                      % (ucode_level, patch_length, add_info))
+            else:
+                # The cpu_id is the equivalent to CPUID_Fn00000001_EAX
+                for cpuid in ids[equiv_id]:
+                    print("  %s: Patch=%#010x Length=%u bytes%s"
+                          % (fms2str(cpuid2fms(cpuid)), ucode_level,
+                             patch_length, add_info))
 
             if opts.verbose >= VERBOSE_DEBUG:
                 print(("   [data_code=%#010x, mc_patch_data_id=%#06x, " +
