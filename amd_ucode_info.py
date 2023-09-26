@@ -202,8 +202,14 @@ def parse_ucode_file(opts, path, start_offset):
             print("ERROR: Missing magic number at beginning of container")
             return
 
+        # Check the equivalence table type
+        eq_table_type = read_int32(ucode_file)
+        if eq_table_type != EQ_TABLE_TYPE:
+            print("ERROR: Invalid equivalence table identifier: %#010x" %
+                  eq_table_type)
+            return
+
         # Read the equivalence table length
-        ucode_file.seek(start_offset + EQ_TABLE_LEN_OFFSET, 0)
         eq_table_len = read_int32(ucode_file)
 
         ids = parse_equiv_table(opts, ucode_file, start_offset, eq_table_len)
