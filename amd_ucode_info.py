@@ -143,7 +143,6 @@ def extract_patch(opts, out_dir, ucode_file, patch, equiv_table=None):
 
     os.chdir(out_dir)
 
-    ucode_file.seek(patch.offset, 0)
     if equiv_table is None:
         # Raw patch
         out_file_name = "mc_patch_0%x.bin" % patch.level
@@ -153,35 +152,74 @@ def extract_patch(opts, out_dir, ucode_file, patch, equiv_table=None):
             out_file_name += '_cpuid_%#010x' % cpuid
         out_file_name += "_patch_%#010x.bin" % patch.level
 
+    out_path = "%s/%s" % (os.getcwd(), out_file_name)
     out_file = open(out_file_name, "wb")
 
-    if equiv_table is not None:
-        cpuids = equiv_table[patch.equiv_id] if patch.equiv_id in equiv_table else dict()
+    os.chdir(cwd)
 
+    if equiv_table is not None:
+        cpuids = equiv_table[patch.equiv_id].values() if patch.equiv_id in equiv_table else []
+    else:
+        cpuids = None
+
+    write_mc(opts, out_file, [patch], ucode_file, cpuids)
+
+    out_file.close()
+
+    print("    Patch extracted to %s" % out_path)
+
+def write_mc(opts, out_file, patches, ucode_file=None, equiv_table=None):
+    """
+    Writes microcode data from patches to out_file.  If equiv_table is provided,
+    a valid container file is generated, that also includes a container header,
+    the equivalence table, and patch headers.
+
+    @param opts: options, as returned by ArgumentParser.parse_args()
+    @type opts: argparse.Namespace
+    @param out_file: file object to write the data to
+    @type out_file: io.BufferedIOBase
+    @param patches: an array of patchesto write out
+    @type patches: list(PatchEntry)
+    @param ucode_file: file object to read the patch from;
+                       if None is provided, a file with path specified
+                       in PatchEntry.file is opened instead  (default: None)
+    @type ucode_file: io.BufferedIOBase
+    @param equiv_table: if provided, a valid container file is created that also
+                        includes all the necessary headers and entries provided
+                        in equiv_table (default: None)
+    @type equiv_table: list(EquivTableEntry)
+    """
+    if equiv_table is not None:
         # Container header
         out_file.write(b'DMA\x00')
 
         # Equivalence table header
         out_file.write(EQ_TABLE_TYPE.to_bytes(4, 'little'))
-        table_size = EQ_TABLE_ENTRY_SIZE * (len(cpuids) + 1)
+        table_size = EQ_TABLE_ENTRY_SIZE * (len(equiv_table) + 1)
         out_file.write(table_size.to_bytes(4, 'little'))
 
         # Equivalence table
-        for cpuid in cpuids.values():
+        for cpuid in equiv_table:
             out_file.write(cpuid.data)
 
         out_file.write(b'\0' * EQ_TABLE_ENTRY_SIZE)
 
+    for patch in patches:
         # Patch header
-        out_file.write(PATCH_TYPE.to_bytes(4, 'little'))
-        out_file.write(patch.size.to_bytes(4, 'little'))
+        if equiv_table is not None:
+            out_file.write(PATCH_TYPE.to_bytes(4, 'little'))
+            out_file.write(patch.size.to_bytes(4, 'little'))
 
-    out_file.write(ucode_file.read(patch.size))
-    out_file.close()
+        if ucode_file is None:
+            in_file = open(patch.file, "rb")
+        else:
+            in_file = ucode_file
 
-    print("    Patch extracted to %s/%s" % (os.getcwd(), out_file_name))
+        in_file.seek(patch.offset, 0)
+        out_file.write(in_file.read(patch.size))
 
-    os.chdir(cwd)
+        if ucode_file is None:
+            in_file.close()
 
 def parse_ucode_file(opts, path, start_offset):
     """
