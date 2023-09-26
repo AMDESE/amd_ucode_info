@@ -8,7 +8,7 @@ Usage
 =====
 ```
 $ ./amd_ucode_info.py --help
-usage: amd_ucode_info.py [-h] [-e EXTRACT] [-s SPLIT] [-v]
+usage: amd_ucode_info.py [-h] [-e EXTRACT] [-s SPLIT] [-m MERGE] [-v]
                          container_file [container_file ...]
 
 Print information about an amd-ucode container
@@ -24,6 +24,8 @@ options:
   -s SPLIT, --split SPLIT
                         Split out each patch in a separate container to the
                         specified directory
+  -m MERGE, --merge MERGE
+                        Write a merged container to the specified file
   -v, --verbose         Increase output verbosity level: provide once to see
                         additional information about patches, twice to see all
                         the information available
