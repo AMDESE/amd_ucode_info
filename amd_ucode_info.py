@@ -24,7 +24,7 @@ PATCH_TYPE = 1
 VERBOSE_DEBUG = 2
 
 FMS = namedtuple("FMS", ("family", "model", "stepping"))
-EquivTableEntry = namedtuple("EquivTableEntry", ("cpuid", "data", "offset"))
+EquivTableEntry = namedtuple("EquivTableEntry", ("cpuid", "equiv_id", "data", "offset"))
 PatchEntry = namedtuple("PatchEntry", ("file", "offset", "size", "equiv_id", "level"))
 
 
@@ -60,6 +60,7 @@ def parse_equiv_table(opts, ucode_file, start_offset, eq_table_len):
     Read equivalence table and return a list of the equivalence ids contained
     """
     table = {}
+    raw_table = []
     # For sanity check only
     cpuid_map = {}
 
@@ -105,7 +106,9 @@ def parse_equiv_table(opts, ucode_file, start_offset, eq_table_len):
             else:
                 cpuid_map[cpu_id] = equiv_id
 
-            table[equiv_id][cpu_id] = EquivTableEntry(cpu_id, data, table_item)
+            entry = EquivTableEntry(cpu_id, equiv_id, data, table_item)
+            table[equiv_id][cpu_id] = entry
+            raw_table.append(entry)
 
         if opts.verbose >= VERBOSE_DEBUG:
             print((" [equiv entry@%#010x: cpuid %#010x, equiv id %#06x, " +
@@ -115,7 +118,7 @@ def parse_equiv_table(opts, ucode_file, start_offset, eq_table_len):
 
         table_item += EQ_TABLE_ENTRY_SIZE
 
-    return table
+    return (table, raw_table)
 
 def extract_patch(opts, out_dir, ucode_file, patch, equiv_table=None):
     """
@@ -167,6 +170,51 @@ def extract_patch(opts, out_dir, ucode_file, patch, equiv_table=None):
     out_file.close()
 
     print("    Patch extracted to %s" % out_path)
+
+def merge_mc(opts, out_path, table, patches):
+    """
+    Generate a merged container out of the provided table and patches and write
+    it to out_path.
+
+    @param opts: options, as returned by ArgumentParser.parse_args()
+    @type opts: argparse.Namespace
+    @param out_path: path to write out the generated container to
+    @type out_path: str
+    @param table: a list of equivalence table entries to accompany the patches
+    @type table: list(EquivTableEntry)
+    @param patches: a list of patches to write out
+    @type patches: list(PatchEntry)
+    """
+    # Do some sanity checks, but only warn about the issues
+    equivid_map = {}
+    cpuid_map = {}
+
+    for entry in table:
+        if entry.equiv_id not in equivid_map:
+            equivid_map[entry.equiv_id] = dict()
+
+        if entry.cpuid in equivid_map[entry.equiv_id]:
+            print(("WARNING: Duplicate CPUID %#010x (%s) in the equivalence " +
+                   "table for equiv_id %#06x ") %
+                  (entry.cpuid, fms2str(cpuid2fms(entry.cpuid)),
+                   entry.equiv_id))
+        else:
+            equivid_map[entry.equiv_id][entry.cpuid] = entry
+
+        if entry.cpuid in cpuid_map:
+            if entry.equiv_id != cpuid_map[entry.cpuid]:
+                print(("WARNING: Different equiv_id's (%#06x and %#06x) " +
+                       "are present in the equivalence table for CPUID " +
+                       "%#010x (%s)") %
+                      (entry.equiv_id, cpuid_map[entry.cpuid], entry.cpuid,
+                       fms2str(cpuid2fms(entry.cpuid))))
+            else:
+                cpuid_map[entry.cpuid] = entry.equiv_id
+
+    with open(out_path, "wb") as out_file:
+        write_mc(opts, out_file, patches, equiv_table=table)
+
+        print("Microcode written to %s" % out_path)
 
 def write_mc(opts, out_file, patches, ucode_file=None, equiv_table=None):
     """
@@ -226,6 +274,9 @@ def parse_ucode_file(opts, path, start_offset):
     Scan through microcode container file printing the microcode patch level
     for each model contained in the file.
     """
+    table = None
+    patches = []
+
     with open(path, "rb") as ucode_file:
         print("Microcode patches in %s%s:" %
               (path, "+%#x" % start_offset if start_offset else ""))
@@ -238,19 +289,19 @@ def parse_ucode_file(opts, path, start_offset):
         ucode_file.seek(start_offset, 0)
         if ucode_file.read(4) != b'DMA\x00':
             print("ERROR: Missing magic number at beginning of container")
-            return
+            return (None, None, None)
 
         # Check the equivalence table type
         eq_table_type = read_int32(ucode_file)
         if eq_table_type != EQ_TABLE_TYPE:
             print("ERROR: Invalid equivalence table identifier: %#010x" %
                   eq_table_type)
-            return
+            return (None, None, None)
 
         # Read the equivalence table length
         eq_table_len = read_int32(ucode_file)
 
-        ids = parse_equiv_table(opts, ucode_file, start_offset, eq_table_len)
+        ids, table = parse_equiv_table(opts, ucode_file, start_offset, eq_table_len)
 
         cursor = start_offset + EQ_TABLE_OFFSET + eq_table_len
         while cursor < end_of_file:
@@ -262,11 +313,11 @@ def parse_ucode_file(opts, path, start_offset):
             patch_type_bytes = ucode_file.read(4)
             # Beginning of a new container
             if patch_type_bytes == b'DMA\x00':
-                return cursor
+                return (cursor, table, patches)
             patch_type = int.from_bytes(patch_type_bytes, 'little')
             if patch_type != PATCH_TYPE:
                 print("Invalid patch identifier: %#010x" % (patch_type))
-                return
+                return (None, table, patches)
 
             patch_length = read_int32(ucode_file)
 
@@ -338,6 +389,7 @@ def parse_ucode_file(opts, path, start_offset):
                       ", ".join(["%#010x" % x for x in match_reg]))
 
             patch = PatchEntry(path, patch_start, patch_length, equiv_id, ucode_level)
+            patches.append(patch)
 
             if opts.extract:
                 extract_patch(opts, opts.extract, ucode_file, patch)
@@ -347,11 +399,24 @@ def parse_ucode_file(opts, path, start_offset):
 
             cursor = cursor + patch_length + 8
 
+    return (None, table, patches)
+
 def parse_ucode_files(opts):
+    all_tables = []
+    all_patches = []
+
     for f in opts.container_file:
         offset = 0
         while offset is not None:
-            offset = parse_ucode_file(opts, f, offset)
+            offset, table, patches = parse_ucode_file(opts, f, offset)
+            if opts.merge:
+                if table is not None:
+                    all_tables += table
+                if patches is not None:
+                    all_patches += patches
+
+    if opts.merge:
+        merge_mc(opts, opts.merge, all_tables, all_patches)
 
 def parse_options():
     """ Parse options """
@@ -361,6 +426,8 @@ def parse_options():
                         help="Dump each patch in container to the specified directory")
     parser.add_argument("-s", "--split",
                         help="Split out each patch in a separate container to the specified directory")
+    parser.add_argument("-m", "--merge",
+                        help="Write a merged container to the specified file")
     parser.add_argument("-v", "--verbose", action="count", default=0,
                         help="Increase output verbosity level: provide once " +
                              "to see additional information about patches, " +
