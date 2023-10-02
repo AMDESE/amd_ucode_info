@@ -9,6 +9,7 @@ raw microcode patches to a provided directory.
 """
 
 import argparse
+import errno
 import sys
 import os
 
@@ -291,14 +292,14 @@ def parse_ucode_file(opts, path, start_offset):
         if ucode_file.read(4) != b'DMA\x00':
             print("ERROR: Missing magic number at beginning of container",
                   file=sys.stderr)
-            return (None, None, None)
+            return (None, None, None, errno.EINVAL)
 
         # Check the equivalence table type
         eq_table_type = read_int32(ucode_file)
         if eq_table_type != EQ_TABLE_TYPE:
             print("ERROR: Invalid equivalence table identifier: %#010x" %
                   eq_table_type, file=sys.stderr)
-            return (None, None, None)
+            return (None, None, None, errno.EINVAL)
 
         # Read the equivalence table length
         eq_table_len = read_int32(ucode_file)
@@ -315,12 +316,12 @@ def parse_ucode_file(opts, path, start_offset):
             patch_type_bytes = ucode_file.read(4)
             # Beginning of a new container
             if patch_type_bytes == b'DMA\x00':
-                return (cursor, table, patches)
+                return (cursor, table, patches, 0)
             patch_type = int.from_bytes(patch_type_bytes, 'little')
             if patch_type != PATCH_TYPE:
                 print("Invalid patch identifier: %#010x" % (patch_type),
                       file=sys.stderr)
-                return (None, table, patches)
+                return (None, table, patches, errno.EINVAL)
 
             patch_length = read_int32(ucode_file)
 
@@ -402,16 +403,23 @@ def parse_ucode_file(opts, path, start_offset):
 
             cursor = cursor + patch_length + 8
 
-    return (None, table, patches)
+    return (None, table, patches, 0)
 
 def parse_ucode_files(opts):
     all_tables = []
     all_patches = []
+    status = 0
 
     for f in opts.container_file:
         offset = 0
         while offset is not None:
-            offset, table, patches = parse_ucode_file(opts, f, offset)
+            offset, table, patches, error = parse_ucode_file(opts, f, offset)
+
+            # We update status with the first error occurred during
+            # the processing, then preserve it
+            if status == 0:
+                status = error
+
             if opts.merge:
                 if table is not None:
                     all_tables += table
@@ -420,6 +428,8 @@ def parse_ucode_files(opts):
 
     if opts.merge:
         merge_mc(opts, opts.merge, all_tables, all_patches)
+
+    return status
 
 def parse_options():
     """ Parse options """
@@ -443,7 +453,7 @@ def parse_options():
             print(file=sys.stderr)
             print("ERROR: Container file \"%s\" does not exist" % f,
                   file=sys.stderr)
-            sys.exit()
+            sys.exit(errno.ENOENT)
 
     return opts
 
@@ -451,7 +461,7 @@ def main():
     """ main """
     opts = parse_options()
 
-    parse_ucode_files(opts)
+    sys.exit(parse_ucode_files(opts))
 
 if __name__ == "__main__":
     main()
