@@ -94,7 +94,8 @@ def parse_equiv_table(opts, ucode_file, start_offset, eq_table_len):
             if cpu_id in table[equiv_id]:
                 print(("WARNING: Duplicate CPUID %#010x (%s) " +
                        "in the equivalence table for equiv_id %#06x ") %
-                      (cpu_id, fms2str(cpuid2fms(cpu_id)), equiv_id))
+                      (cpu_id, fms2str(cpuid2fms(cpu_id)), equiv_id),
+                      file=sys.stderr)
 
             if cpu_id in cpuid_map:
                 if equiv_id != cpuid_map[cpu_id]:
@@ -102,7 +103,7 @@ def parse_equiv_table(opts, ucode_file, start_offset, eq_table_len):
                            "are present in the equivalence table for CPUID " +
                            "%#010x (%s)") %
                           (equiv_id, cpuid_map[cpu_id], cpu_id,
-                           fms2str(cpuid2fms(cpu_id))))
+                           fms2str(cpuid2fms(cpu_id))), file=sys.stderr)
             else:
                 cpuid_map[cpu_id] = equiv_id
 
@@ -197,7 +198,7 @@ def merge_mc(opts, out_path, table, patches):
             print(("WARNING: Duplicate CPUID %#010x (%s) in the equivalence " +
                    "table for equiv_id %#06x ") %
                   (entry.cpuid, fms2str(cpuid2fms(entry.cpuid)),
-                   entry.equiv_id))
+                   entry.equiv_id), file=sys.stderr)
         else:
             equivid_map[entry.equiv_id][entry.cpuid] = entry
 
@@ -207,7 +208,7 @@ def merge_mc(opts, out_path, table, patches):
                        "are present in the equivalence table for CPUID " +
                        "%#010x (%s)") %
                       (entry.equiv_id, cpuid_map[entry.cpuid], entry.cpuid,
-                       fms2str(cpuid2fms(entry.cpuid))))
+                       fms2str(cpuid2fms(entry.cpuid))), file=sys.stderr)
             else:
                 cpuid_map[entry.cpuid] = entry.equiv_id
 
@@ -288,14 +289,15 @@ def parse_ucode_file(opts, path, start_offset):
         # Check magic number
         ucode_file.seek(start_offset, 0)
         if ucode_file.read(4) != b'DMA\x00':
-            print("ERROR: Missing magic number at beginning of container")
+            print("ERROR: Missing magic number at beginning of container",
+                  file=sys.stderr)
             return (None, None, None)
 
         # Check the equivalence table type
         eq_table_type = read_int32(ucode_file)
         if eq_table_type != EQ_TABLE_TYPE:
             print("ERROR: Invalid equivalence table identifier: %#010x" %
-                  eq_table_type)
+                  eq_table_type, file=sys.stderr)
             return (None, None, None)
 
         # Read the equivalence table length
@@ -316,7 +318,8 @@ def parse_ucode_file(opts, path, start_offset):
                 return (cursor, table, patches)
             patch_type = int.from_bytes(patch_type_bytes, 'little')
             if patch_type != PATCH_TYPE:
-                print("Invalid patch identifier: %#010x" % (patch_type))
+                print("Invalid patch identifier: %#010x" % (patch_type),
+                      file=sys.stderr)
                 return (None, table, patches)
 
             patch_length = read_int32(ucode_file)
@@ -363,7 +366,7 @@ def parse_ucode_file(opts, path, start_offset):
 
             if equiv_id not in ids:
                 print("Patch equivalence id not present in equivalence table (%#06x)"
-                      % (equiv_id))
+                      % (equiv_id), file=sys.stderr)
                 print(("  Family=???? Model=???? Stepping=????: " +
                        "Patch=%#010x Length=%u bytes%s")
                       % (ucode_level, patch_length, add_info))
@@ -436,9 +439,10 @@ def parse_options():
 
     for f in opts.container_file:
         if not os.path.isfile(f):
-            parser.print_help()
-            print()
-            print("ERROR: Container file \"%s\" does not exist" % f)
+            parser.print_help(file=sys.stderr)
+            print(file=sys.stderr)
+            print("ERROR: Container file \"%s\" does not exist" % f,
+                  file=sys.stderr)
             sys.exit()
 
     return opts
